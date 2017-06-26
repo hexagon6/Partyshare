@@ -42,7 +42,7 @@ const FileList = ({
         );
     }
 
-    // files = files.sort((a, b) => new Date(b.stats.ctime) - new Date(a.stats.ctime));
+    files = files.sort((a, b) => new Date(b.ctime) - new Date(a.ctime));
 
     return (
         <ul className={styles.this} {...props}>
