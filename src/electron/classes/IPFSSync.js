@@ -77,6 +77,7 @@ class IPFSSync extends EventEmitter {
         this._initNode = this._initNode.bind(this);
         this._readAndSyncFiles = this._readAndSyncFiles.bind(this);
         this._retryConnection = this._retryConnection.bind(this);
+        this._statDirectory = this._statDirectory.bind(this);
         this._syncFiles = this._syncFiles.bind(this);
         this.setState = this.setState.bind(this);
         this.start = this.start.bind(this);
@@ -107,7 +108,7 @@ class IPFSSync extends EventEmitter {
                 fileObject.urlPath = encodeURI(join(dirObject.hash, fileName));
                 fileObject.name = fileName;
                 fileObject.path = path;
-                return Promise.resolve([fileObject]);
+                return Promise.resolve(fileObject);
             });
     }
 
@@ -137,6 +138,32 @@ class IPFSSync extends EventEmitter {
     }
 
     /**
+     * Assign stats to all files in a directory.
+     * @param  {Array} files
+     * @return {Promise}
+     */
+    _statDirectory(files) {
+        logger.info('[IPFSSync] _statDirectory');
+
+        if (files.length < 1) {
+            return Promise.resolve(files);
+        }
+
+        const promises = files.map((file) => {
+            return new Promise((resolve, reject) => {
+                fs.stat(file.path, (err, stats) => {
+                    if (err) {
+                        return reject(err);
+                    }
+                    return resolve(Object.assign(file, stats));
+                });
+            });
+        });
+
+        return Promise.all(promises);
+    }
+
+    /**
      * Add the whole folder to IPFS, resolving with the new folder
      * hash and a list of files.
      * @param  {Array} fileNames
@@ -147,7 +174,7 @@ class IPFSSync extends EventEmitter {
 
         if (fileNames.length < 1) {
             // No files to sync
-            return this.setState({ files: [], synced: true });
+            return Promise.resolve([]);
         }
 
         const promises = fileNames.map((fileName) => {
@@ -161,11 +188,13 @@ class IPFSSync extends EventEmitter {
 
                     if (stats.isDirectory()) {
                         return this._addDirectory(fullPath)
+                            .then(this._statDirectory)
                             .then(resolve)
                             .catch(reject);
                     }
 
                     return this._addFile(fullPath)
+                        .then((file) => [Object.assign(file, stats)])
                         .then(resolve)
                         .catch(reject);
                 });
@@ -173,8 +202,7 @@ class IPFSSync extends EventEmitter {
         });
 
         return Promise.all(promises)
-            .then((groups) => [].concat(...groups))
-            .then((files) => this.setState({ files, synced: true }));
+            .then((groups) => [].concat(...groups));
     }
 
     /**
@@ -208,6 +236,7 @@ class IPFSSync extends EventEmitter {
 
         return getFiles(this.state.folder.path)
             .then(this._syncFiles)
+            .then((files) => this.setState({ files, synced: true }))
             .catch((e) => {
                 logger.error('[IPFSSync] _readAndSyncFiles: ', e);
                 this._retryConnection();
